@@ -1334,7 +1334,8 @@ local function initRenderStep()
     end)
 end
 
--- ------------------------------------------
+--
+------------------------------------------
 -- [Tab 1] Grab
 -- ------------------------------------------
 local GrabTab = Window:MakeTab({
@@ -1342,6 +1343,9 @@ local GrabTab = Window:MakeTab({
     Icon = "rbxassetid://7485051715",
     PremiumOnly = false
 })
+
+
+
 
 GrabTab:AddSection({Name = "Strength Settings"})
 GrabTab:AddToggle({ Name = "Super Strength", Default = false, Callback = function(Value) throwEnabled = Value end })
@@ -1480,79 +1484,62 @@ AntiTab:AddToggle({
 AntiTab:AddButton({
     Name = "Anti kick",
     Callback = function()
+
         local plr = LocalPlayer
-        local serverPos = CFrame.new(-272.2197265625, -7.350403785705566, 475.0108947753906)
-        
-        workspace.FallenPartsDestroyHeight = 0/0
+        local char = plr.Character or plr.CharacterAdded:Wait()
+        local root = char:WaitForChild("HumanoidRootPart")
+        local hum = char:WaitForChild("Humanoid")
 
-        local storedJoints = {}
-        local root
+        local serverPos = CFrame.new(-272.2197265625, 10, 475.0108947753906)
+
+        -- 落下対策（NaN禁止）
+        workspace.FallenPartsDestroyHeight = -500
+
+        local oldCFrame = root.CFrame
+        local oldState = hum:GetState()
+
+        -- 死亡防止
+        hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
+
+        root.CFrame = serverPos
+
         local conn
-        local active = false
+        conn = RunService.Heartbeat:Connect(function()
 
-        local function breakPCLD()
-            local char = plr.Character
-            if not char then return end
-            root = char:WaitForChild("HumanoidRootPart")
-
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("Motor6D") then
-                    storedJoints[v] = v.Part0
-                    v.Part0 = nil
-                end
+            if not root.Parent then
+                conn:Disconnect()
+                return
             end
 
-            root.CFrame = serverPos
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
 
-            conn = RunService.RenderStepped:Connect(function()
-                if root and root.Parent then
-                    root.AssemblyLinearVelocity = Vector3.zero
-                    root.AssemblyAngularVelocity = Vector3.zero
-                end
-            end)
-        end
-
-        local function restore()
-            if conn then 
-                conn:Disconnect() 
-                conn = nil 
-            end
-
-            for m, p0 in pairs(storedJoints) do
-                if m and m.Parent then
-                    m.Part0 = p0
-                end
-            end
-            storedJoints = {}
-        end
-
-        local function press6()
-            active = not active
-            if active then
-                breakPCLD()
-            else
-                restore()
-            end
-        end
-
-        press6()
-        task.wait(0.12)
-        press6()
-
-        plr.CharacterAdded:Once(function()
-            task.wait(0.25)
-            press6()
-            task.wait(0.12)
-            press6()
         end)
-        
+
+        task.delay(1,function()
+
+            if conn then
+                conn:Disconnect()
+            end
+
+            if root and root.Parent then
+                root.CFrame = oldCFrame
+            end
+
+            hum:SetStateEnabled(Enum.HumanoidStateType.Dead,true)
+            hum:ChangeState(oldState)
+
+        end)
+
+
         OrionLib:MakeNotification({
             Name = "Success",
             Content = "Anti kick executed",
             Image = "rbxassetid://4483362458",
             Time = 3
         })
-    end    
+
+    end
 })
 
 AntiTab:AddSection({Name = "Defense Features"})
@@ -1560,71 +1547,115 @@ AntiTab:AddSection({Name = "Defense Features"})
 AntiTab:AddToggle({
     Name = "Anti Kill",
     Default = false,
+
     Callback = function(Value)
+
         if spamConnection then
             spamConnection:Disconnect()
             spamConnection = nil
         end
+
         isHolding = false
         lastActionTime = 0
-        
+
         if Value then
+
             OrionLib:MakeNotification({
                 Name = "Anti Kill",
-                Content = "ONしました\n死にそうになったらすぐOFFに",
-                Time = 4
+                Content = "Anti Kill ON",
+                Time = 3
             })
-            
+
+
             spamConnection = RunService.Heartbeat:Connect(function()
+
                 local character = LocalPlayer.Character
                 if not character then return end
-                
+
                 local hum = character:FindFirstChildOfClass("Humanoid")
-                if not hum or hum.Health <= 0 then return end
-                
-                local playerName = LocalPlayer.Name
-                local spawnedFolder = workspace:FindFirstChild(playerName .. "SpawnedInToys")
-                local hamburger = spawnedFolder and spawnedFolder:FindFirstChild("FoodHamburger")
-                
-                if not hamburger then
-                    -- スポーン間隔を少し緩めて安全に
-                    if os.clock() - lastActionTime > 0.35 then
+                local root = character:FindFirstChild("HumanoidRootPart")
+
+                if not hum or not root then return end
+
+                -- 死亡寸前なら処理停止
+                if hum.Health <= 5 then
+                    isHolding = false
+                    return
+                end
+
+
+                local folder = workspace:FindFirstChild(
+                    LocalPlayer.Name.."SpawnedInToys"
+                )
+
+                local burger = folder and folder:FindFirstChild(
+                    "FoodHamburger"
+                )
+
+
+                if not burger then
+
+                    if os.clock() - lastActionTime > 1 then
+
                         pcall(function()
-                            local root = character:FindFirstChild("HumanoidRootPart")
-                            local spawnCFrame = root and root.CFrame * CFrame.new(0, 5, 0) 
-                                             or CFrame.new(0, 50, 0)
-                            
-                            ReplicatedStorage.MenuToys.SpawnToyRemoteFunction:InvokeServer(
+
+                            ReplicatedStorage.MenuToys
+                            .SpawnToyRemoteFunction:InvokeServer(
                                 "FoodHamburger",
-                                spawnCFrame,
-                                Vector3.new(0, 30, 0)
+                                root.CFrame * CFrame.new(0,4,0),
+                                Vector3.zero
                             )
+
                         end)
+
                         lastActionTime = os.clock()
                     end
+
+
                 else
-                    pcall(function()
-                        if not isHolding then
-                            hamburger.HoldPart.HoldItemRemoteFunction:InvokeServer(hamburger, character)
-                            isHolding = true
-                        else
-                            local root = character:FindFirstChild("HumanoidRootPart")
-                            if root then
-                                hamburger.HoldPart.DropItemRemoteFunction:InvokeServer(
-                                    hamburger,
-                                    root.CFrame,
-                                    Vector3.new(0, 35, 0)
+
+                    if burger:FindFirstChild("HoldPart") then
+
+                        pcall(function()
+
+                            if not isHolding then
+
+                                burger.HoldPart
+                                .HoldItemRemoteFunction
+                                :InvokeServer(
+                                    burger,
+                                    character
                                 )
+
+                                isHolding = true
+
+
+                            else
+
+                                burger.HoldPart
+                                .DropItemRemoteFunction
+                                :InvokeServer(
+                                    burger,
+                                    root.CFrame,
+                                    Vector3.new(0,5,0)
+                                )
+
+                                isHolding = false
+
                             end
-                            isHolding = false
-                        end
-                    end)
+
+                        end)
+
+                    end
+
                 end
+
             end)
+
         end
-    end    
+    end
 })
-    
+
 AntiTab:AddToggle({
     Name = "Fight Back",
     Default = false,
@@ -2527,6 +2558,108 @@ AuraTab:AddSlider({
     Min = 15,
     Max = 40,
     Default = 35,
+    Increment = 5,
+    Callback = function() end
+})
+
+-- =========================
+-- 竜巻オーラ（Tornado Aura）
+-- =========================
+local tornadoEnabled = false
+local tornadoConn = nil
+local tornadoAngle = 0
+
+local function startTornadoAura()
+    if tornadoConn then tornadoConn:Disconnect() end
+    tornadoAngle = 0
+    
+    tornadoConn = RunService.Heartbeat:Connect(function(dt)
+        if not tornadoEnabled then return end
+        
+        local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not myRoot then return end
+
+        tornadoAngle = tornadoAngle + dt * 18  -- 高速回転
+
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr == LocalPlayer or not plr.Character then continue end
+            
+            local tRoot = plr.Character:FindFirstChild("HumanoidRootPart")
+            local tHum = plr.Character:FindFirstChild("Humanoid")
+            if not tRoot or not tHum or tHum.Health <= 0 then continue end
+
+            local dist = (tRoot.Position - myRoot.Position).Magnitude
+            if dist > 40 then continue end
+
+            pcall(function()
+                if SetNetworkOwner then
+                    SetNetworkOwner:FireServer(tRoot, tRoot.CFrame)
+                end
+
+                -- 自分の頭の上に固定 + 竜巻回転
+                local height = 18
+                local radius = 6
+                
+                local angle = tornadoAngle + (plr.UserId % 5) * 1.2  -- 少し位相をずらす
+                
+                local x = math.cos(angle) * radius
+                local z = math.sin(angle) * radius
+                
+                local targetPos = myRoot.Position + Vector3.new(x, height, z)
+                
+                tRoot.CFrame = CFrame.new(targetPos, myRoot.Position) * CFrame.Angles(0, angle * 2, 0)
+                tRoot.AssemblyLinearVelocity = Vector3.zero
+                tRoot.AssemblyAngularVelocity = Vector3.new(0, 30, 0)  -- 高速回転
+
+                if tHum then
+                    tHum.PlatformStand = true
+                    tHum.Sit = true
+                end
+            end)
+        end
+    end)
+end
+
+local function stopTornadoAura()
+    if tornadoConn then
+        tornadoConn:Disconnect()
+        tornadoConn = nil
+    end
+end
+
+-- =========================
+-- UI
+-- =========================
+AuraTab:AddSection({ Name = "Spin Aura" })
+
+AuraTab:AddToggle({
+    Name = "Spin Aura",
+    Default = false,
+    Callback = function(v)
+        tornadoEnabled = v
+        if v then
+            startTornadoAura()
+            OrionLib:MakeNotification({Name = "Spin Aura", Content = "ON\あいうえお", Time = 4})
+        else
+            stopTornadoAura()
+        end
+    end
+})
+
+AuraTab:AddSlider({
+    Name = "回転速度",
+    Min = 8,
+    Max = 30,
+    Default = 18,
+    Increment = 1,
+    Callback = function() end
+})
+
+AuraTab:AddSlider({
+    Name = "範囲",
+    Min = 20,
+    Max = 50,
+    Default = 40,
     Increment = 5,
     Callback = function() end
 })
@@ -3740,28 +3873,6 @@ ServerTab:AddButton({
     Callback = function()
         print("button pressed")
         game:GetService("ReplicatedStorage").CharacterEvents.ChatTyping:FireServer("begin")
-    end
-})
-
--- ------------------------------------------
--- [Tab 9] Server
--- ------------------------------------------
-local MiscTab = Window:MakeTab({
-    Name = "Misc",
-    Icon = "rbxassetid://4483345998",
-    PremiumOnly = false
-})
-
--- =========================
--- トグル
--- =========================
-MiscTab:AddButton({
-    Name = "キャラリセット",
-    Callback = function()
-        local lp = game.Players.LocalPlayer
-        if lp.Character then
-            lp.Character:BreakJoints()
-        end
     end
 })
 
